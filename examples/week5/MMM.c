@@ -6,6 +6,7 @@
 
 float A[M_SIZE*M_SIZE];
 float B[M_SIZE*M_SIZE];
+float C_sol[M_SIZE*M_SIZE];
 float C[M_SIZE*M_SIZE];
 
 static inline double get_sec()
@@ -13,6 +14,40 @@ static inline double get_sec()
   struct timeval tim;
   gettimeofday(&tim, 0);
   return tim.tv_sec+(tim.tv_usec/1000000.0);
+}
+
+__m128 gather_float(float *base, unsigned scale, __m128i offsets, __m128 mask) {
+	float temp[4];
+	__m128 ret;
+	__m128 zero = _mm_set1_ps(0.0f);
+
+	ret = _mm_set_ps(*(base + scale*_mm_extract_epi32(offsets,3)),
+			 *(base + scale*_mm_extract_epi32(offsets,2)),
+			 *(base + scale*_mm_extract_epi32(offsets,1)),
+			 *(base + scale*_mm_extract_epi32(offsets,0))
+			 );
+
+	return _mm_blendv_ps(ret,zero,mask);
+}
+
+void scatter_float(float *base, unsigned scale, __m128i offsets, __m128 v, __m128 mask ) {
+	int temp;
+	if (_mm_extract_ps(mask,0)) {
+		temp = _mm_extract_ps(v,0);
+		*(base + scale*_mm_extract_epi32(offsets,0)) = *((float *) &temp);
+	}
+	if (_mm_extract_ps(mask,1)) {
+		temp = _mm_extract_ps(v,1);
+		*(base + scale*_mm_extract_epi32(offsets,1)) = *((float *) &temp);
+	}
+	if (_mm_extract_ps(mask,2)) {
+		temp = _mm_extract_ps(v,2);
+		*(base + scale*_mm_extract_epi32(offsets,2)) = *((float *) &temp);
+	}
+	if (_mm_extract_ps(mask,3)) {
+		temp = _mm_extract_ps(v,3);
+		*(base + scale*_mm_extract_epi32(offsets,3)) = *((float *) &temp);
+	}
 }
 
 /* Performs C = A(B^T) as a 2D matrix multiply */
@@ -44,6 +79,35 @@ void matrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SI
 	}
 }
 
+/* Performs C = A*B as a 2D matrix multiply */
+
+/* This is done using the straight forward implementation which takes
+ *
+ * O(n^3) time. It is not Strausen's alg which runs in O(n^lg7) time.
+ */
+
+void REGmatrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SIZE*M_SIZE]) {
+
+	float* v1;
+	float* v2;
+	float prod[M_SIZE];
+	float sum;
+	int i,j,k;
+
+	for (i=0; i<M_SIZE; i++) {
+		for (j=0; j<M_SIZE; j++) {
+			sum = 0.0;
+			for (k=0; k<M_SIZE; k++) {
+				prod[k] = A[i*M_SIZE+k] * B[k*M_SIZE+j];
+			}
+			for (k=0; k<M_SIZE; k++) {
+				sum = sum + prod[k];
+			}
+			C[i*M_SIZE+j] = sum;
+		}
+	}
+}
+
 /*
  *
  * Transposes A in place.
@@ -65,13 +129,107 @@ void matrixTranspose(float A[M_SIZE*M_SIZE]) {
 }
 
 /* 
+ * Performs C = A*B as a 2D matrix multiply 
+ * This is done using SIMD instructions including gather
+*/
+void SIMDmatrixMultiplyGS(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SIZE*M_SIZE]) {
+	__m128 tempI, tempB, sum1, sum2, sum3, sum4;
+	__m128i offsets;
+	__m128 mask = _mm_set1_ps(1.0f);
+	__m128i inc = _mm_set1_epi32(4);
+
+	int i,j,k;
+
+	for (i = 0; i < M_SIZE; i ++) {
+		for (j = 0; j < M_SIZE; j += 4) {
+			sum1 = _mm_set1_ps(0.0f);
+			sum2 = _mm_set1_ps(0.0f);
+			sum3 = _mm_set1_ps(0.0f);
+			sum4 = _mm_set1_ps(0.0f);
+			offsets = _mm_set_epi32(3,2,1,0);
+			for (k = 0; k < M_SIZE; k += 4) {
+				tempI = _mm_loadu_ps(A + i*M_SIZE + k);
+				tempB = gather_float(B + j,M_SIZE,offsets,mask);
+				sum1 = _mm_add_ps(sum1,_mm_mul_ps(tempI,tempB));
+				tempB = gather_float(B + j + 1,M_SIZE,offsets,mask);
+				sum2 = _mm_add_ps(sum2,_mm_mul_ps(tempI,tempB));
+				tempB = gather_float(B + j + 2,M_SIZE,offsets,mask);
+				sum3 = _mm_add_ps(sum3,_mm_mul_ps(tempI,tempB));
+				tempB = gather_float(B + j + 3,M_SIZE,offsets,mask);
+				sum4 = _mm_add_ps(sum4,_mm_mul_ps(tempI,tempB));
+				offsets = _mm_add_epi32(offsets,inc);
+			}
+			sum1 = _mm_hadd_ps(sum1,sum2);
+			sum2 = _mm_hadd_ps(sum3,sum4);
+			sum1 = _mm_hadd_ps(sum1,sum2);
+			_mm_storeu_ps(C + i*M_SIZE + j,sum1);
+		}
+	}
+}
+
+/* 
  * Performs C = A(B^T) as a 2D matrix multiply 
  * This is done using SIMD instructions
 */
+void SIMDmatrixMultiplyQuad(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SIZE*M_SIZE]) {
+	__m128 tempI, tempB, sum1, sum2, sum3, sum4;
+
+	int i,j,k;
+
+	for (i = 0; i < M_SIZE; i ++) {
+		for (j = 0; j < M_SIZE; j += 4) {
+			sum1 = _mm_set1_ps(0.0f);
+			sum2 = _mm_set1_ps(0.0f);
+			sum3 = _mm_set1_ps(0.0f);
+			sum4 = _mm_set1_ps(0.0f);
+			for (k = 0; k < M_SIZE; k += 4) {
+				tempI = _mm_loadu_ps(A + i*M_SIZE + k);
+				tempB = _mm_loadu_ps(B + j*M_SIZE + k);
+				sum1 = _mm_add_ps(sum1,_mm_mul_ps(tempI,tempB));
+				tempB = _mm_loadu_ps(B + (j + 1)*M_SIZE + k);
+				sum2 = _mm_add_ps(sum2,_mm_mul_ps(tempI,tempB));
+				tempB = _mm_loadu_ps(B + (j + 2)*M_SIZE + k);
+				sum3 = _mm_add_ps(sum3,_mm_mul_ps(tempI,tempB));
+				tempB = _mm_loadu_ps(B + (j + 3)*M_SIZE + k);
+				sum4 = _mm_add_ps(sum4,_mm_mul_ps(tempI,tempB));
+			}
+			sum1 = _mm_hadd_ps(sum1,sum2);
+			sum2 = _mm_hadd_ps(sum3,sum4);
+			sum1 = _mm_hadd_ps(sum1,sum2);
+			_mm_storeu_ps(C + i*M_SIZE + j,sum1);
+		}
+	}
+}
+
+/* 
+ * Performs C = A(B^T) as a 2D matrix multiply 
+ * This is done using SIMD instructions
+*/
+void SIMDmatrixMultiplyNew(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SIZE*M_SIZE]) {
+	__m128 tempA, tempB, sum;
+
+	int i,j,k,temp;
+
+	for (i = 0; i < M_SIZE; i ++) {
+		for (j = 0; j < M_SIZE; j ++) {
+			sum = _mm_set1_ps(0.0f);
+			for (k = 0; k < M_SIZE; k += 4) {
+				tempA = _mm_loadu_ps(A + i*M_SIZE + k);
+				tempB = _mm_loadu_ps(B + j*M_SIZE + k);
+				sum = _mm_add_ps(sum,_mm_mul_ps(tempA,tempB));
+			}
+			sum = _mm_hadd_ps(sum,sum);
+			sum = _mm_hadd_ps(sum,sum);
+			temp = _mm_extract_ps(sum,0);
+			C[i*M_SIZE+j] = *((float *) &temp);
+		}
+	}
+}
+
 void SIMDmatrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SIZE*M_SIZE]) {
 	__m128 tempA, tempB, sum;
 
-	float total_sum[4];
+	float total[4];
 	int i,j,k;
 
 	for (i = 0; i < M_SIZE; i ++) {
@@ -82,8 +240,8 @@ void SIMDmatrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[
 				tempB = _mm_loadu_ps(B + j*M_SIZE + k);
 				sum = _mm_add_ps(sum,_mm_mul_ps(tempA,tempB));
 			}
-			_mm_storeu_ps(total_sum,sum);
-			C[i*M_SIZE+j] = total_sum[0] + total_sum[1] + total_sum[2] + total_sum[3];
+			_mm_storeu_ps(total,sum);
+			C[i*M_SIZE+j] = total[0] + total[1] + total[2] + total[3];
 		}
 	}
 }
@@ -149,14 +307,16 @@ void SIMDmatrixTranspose(float A[M_SIZE*M_SIZE]) {
 	recursiveTranspose(0,0,M_SIZE);
 }
 
-void print_mat(float A[M_SIZE*M_SIZE]) {
+int check_mat(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE]) {
 	int i,j;
 	for (i = 0; i < M_SIZE; i ++) {
 		for (j = 0; j < M_SIZE; j ++) {
-			printf("%d\t",(int)A[i*M_SIZE + j]);
+			if (abs(A[i*M_SIZE + j] - B[i*M_SIZE + j]) > 0.001) {
+				return 0;
+			}
 		}
-		printf("\n");
 	}
+	return 1;
 }
 
 #define ITERATIONS 10
@@ -170,22 +330,84 @@ int main() {
 			B[i*M_SIZE + j] = (rand() % 256) - 128;
 		}
 	}
-
+	matrixTranspose(B);
+	
 	start_time = get_sec();
 	for(i = 0; i < ITERATIONS; i++) {
-		matrixTranspose(B);
-		matrixMultiply(A,B,C);
+		matrixMultiply(A,B,C_sol);
 	}
 	end_time = get_sec();
 	printf("Sequential version finished, time %f\n", (end_time-start_time));
 
+
 	start_time = get_sec();
 	for(i = 0; i < ITERATIONS; i++) {
-		matrixTranspose(B);
 		SIMDmatrixMultiply(A,B,C);
 	}
 	end_time = get_sec();
-	printf("SIMD version finished, time %f\n", (end_time-start_time));
+	if (check_mat(C_sol,C)) {
+		printf("SIMD version finished, time %f\n", (end_time-start_time));
+	}
+	else {
+		printf("SIMD version failed\n");
+	}
+	
+
+
+	start_time = get_sec();
+	for(i = 0; i < ITERATIONS; i++) {
+		SIMDmatrixMultiplyNew(A,B,C);
+	}
+	end_time = get_sec();
+	if (check_mat(C_sol,C)) {
+		printf("SIMD new version finished, time %f\n", (end_time-start_time));
+	}
+	else {
+		printf("SIMD new version failed\n");
+	}
+
+
+
+	start_time = get_sec();
+	for(i = 0; i < ITERATIONS; i++) {
+		SIMDmatrixMultiplyQuad(A,B,C);
+	}
+	end_time = get_sec();
+	if (check_mat(C_sol,C)) {
+		printf("SIMD quad version finished, time %f\n", (end_time-start_time));
+	}
+	else {
+		printf("SIMD quad version failed\n");
+	}
+
+
+	matrixTranspose(B);
+
+	start_time = get_sec();
+	for(i = 0; i < ITERATIONS; i++) {
+		REGmatrixMultiply(A,B,C);
+	}
+	end_time = get_sec();
+	if (check_mat(C_sol,C)) {
+		printf("Regular sequential version finished, time %f\n", (end_time-start_time));
+	}
+	else {
+		printf("Regular sequential version failed\n");
+	}
+
+
+
+	start_time = get_sec();
+	for(i = 0; i < ITERATIONS; i++) {
+		SIMDmatrixMultiplyGS(A,B,C);
+	}
+	end_time = get_sec();
+	if (check_mat(C_sol,C)) {
+		printf("SIMD gather version finished, time %f\n", (end_time-start_time));
+	}
+	else {
+		printf("SIMD gather version failed\n");
+	}
 
 	return 0;
 }
