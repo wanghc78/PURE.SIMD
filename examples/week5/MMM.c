@@ -3,6 +3,7 @@
 #include <nmmintrin.h>
 
 #define M_SIZE 256 //256
+#define ITERATIONS 10
 
 float A[M_SIZE*M_SIZE];
 float B[M_SIZE*M_SIZE];
@@ -61,7 +62,6 @@ void matrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SI
 
 	float* v1;
 	float* v2;
-	float prod[M_SIZE];
 	float sum;
 	int i,j,k;
 
@@ -69,12 +69,83 @@ void matrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SI
 		for (j=0; j<M_SIZE; j++) {
 			sum = 0.0;
 			for (k=0; k<M_SIZE; k++) {
-				prod[k] = A[i*M_SIZE+k] * B[j*M_SIZE+k];
-			}
-			for (k=0; k<M_SIZE; k++) {
-				sum = sum + prod[k];
+				sum += A[i*M_SIZE+k] * B[j*M_SIZE+k];
 			}
 			C[i*M_SIZE+j] = sum;
+		}
+	}
+}
+
+/* Performs C = A(B^T) as a 2D matrix multiply */
+
+/* This is done using the straight forward implementation which takes
+ *
+ * O(n^3) time. It is not Strausen's alg which runs in O(n^lg7) time.
+ */
+
+void UNROLLmatrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SIZE*M_SIZE]) {
+
+	float* v1;
+	float* v2;
+	float sum;
+	int i,j,k;
+
+	for (i=0; i<M_SIZE; i++) {
+		for (j=0; j<M_SIZE; j++) {
+			sum = 0.0;
+			for (k=0; k<M_SIZE; k += 4) {
+				sum += A[i*M_SIZE + k] * B[j*M_SIZE + k];
+				sum += A[i*M_SIZE + k + 1] * B[j*M_SIZE + k + 1];
+				sum += A[i*M_SIZE + k + 2] * B[j*M_SIZE + k + 2];
+				sum += A[i*M_SIZE + k + 3] * B[j*M_SIZE + k + 3];
+			}
+			C[i*M_SIZE + j] = sum;
+		}
+	}
+}
+
+/* Performs C = A(B^T) as a 2D matrix multiply */
+
+/* This is done using the straight forward implementation which takes
+ *
+ * O(n^3) time. It is not Strausen's alg which runs in O(n^lg7) time.
+ */
+
+void quad_UNROLLmatrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SIZE*M_SIZE]) {
+
+	float* v1;
+	float* v2;
+	float sum1, sum2, sum3, sum4;
+	int i,j,k;
+
+	for (i=0; i<M_SIZE; i++) {
+		for (j=0; j<M_SIZE; j += 4) {
+			sum1 = 0.0;
+			sum2 = 0.0;
+			sum3 = 0.0;
+			sum4 = 0.0;
+			for (k=0; k<M_SIZE; k += 4) {
+				sum1 += A[i*M_SIZE + k] * B[j*M_SIZE + k];
+				sum1 += A[i*M_SIZE + k + 1] * B[j*M_SIZE + k + 1];
+				sum1 += A[i*M_SIZE + k + 2] * B[j*M_SIZE + k + 2];
+				sum1 += A[i*M_SIZE + k + 3] * B[j*M_SIZE + k + 3];
+				sum2 += A[i*M_SIZE + k] * B[(j + 1)*M_SIZE + k];
+				sum2 += A[i*M_SIZE + k + 1] * B[(j + 1)*M_SIZE + k + 1];
+				sum2 += A[i*M_SIZE + k + 2] * B[(j + 1)*M_SIZE + k + 2];
+				sum2 += A[i*M_SIZE + k + 3] * B[(j + 1)*M_SIZE + k + 3];
+				sum3 += A[i*M_SIZE + k] * B[(j + 2)*M_SIZE + k];
+				sum3 += A[i*M_SIZE + k + 1] * B[(j + 2)*M_SIZE + k + 1];
+				sum3 += A[i*M_SIZE + k + 2] * B[(j + 2)*M_SIZE + k + 2];
+				sum3 += A[i*M_SIZE + k + 3] * B[(j + 2)*M_SIZE + k + 3];
+				sum4 += A[i*M_SIZE + k] * B[(j + 3)*M_SIZE + k];
+				sum4 += A[i*M_SIZE + k + 1] * B[(j + 3)*M_SIZE + k + 1];
+				sum4 += A[i*M_SIZE + k + 2] * B[(j + 3)*M_SIZE + k + 2];
+				sum4 += A[i*M_SIZE + k + 3] * B[(j + 3)*M_SIZE + k + 3];
+			}
+			C[i*M_SIZE + j] = sum1;
+			C[i*M_SIZE + j + 1] = sum2;
+			C[i*M_SIZE + j + 2] = sum3;
+			C[i*M_SIZE + j + 3] = sum4;
 		}
 	}
 }
@@ -90,7 +161,6 @@ void REGmatrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M
 
 	float* v1;
 	float* v2;
-	float prod[M_SIZE];
 	float sum;
 	int i,j,k;
 
@@ -98,12 +168,55 @@ void REGmatrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M
 		for (j=0; j<M_SIZE; j++) {
 			sum = 0.0;
 			for (k=0; k<M_SIZE; k++) {
-				prod[k] = A[i*M_SIZE+k] * B[k*M_SIZE+j];
-			}
-			for (k=0; k<M_SIZE; k++) {
-				sum = sum + prod[k];
+				sum += A[i*M_SIZE+k] * B[k*M_SIZE+j];
 			}
 			C[i*M_SIZE+j] = sum;
+		}
+	}
+}
+
+/* Performs C = A*B as a 2D matrix multiply */
+
+/* This is done using the straight forward implementation which takes
+ *
+ * O(n^3) time. It is not Strausen's alg which runs in O(n^lg7) time.
+ */
+
+void unroll_REGmatrixMultiply(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE], float C[M_SIZE*M_SIZE]) {
+
+	float* v1;
+	float* v2;
+	float sum1, sum2, sum3, sum4;
+	int i,j,k;
+
+	for (i=0; i<M_SIZE; i++) {
+		for (j=0; j<M_SIZE; j += 4) {
+			sum1 = 0.0;
+			sum2 = 0.0;
+			sum3 = 0.0;
+			sum4 = 0.0;
+			for (k=0; k<M_SIZE; k += 4) {
+				sum1 += A[i*M_SIZE + k] * B[k*M_SIZE + j];
+				sum1 += A[i*M_SIZE + k + 1] * B[k*M_SIZE + j + 1];
+				sum1 += A[i*M_SIZE + k + 2] * B[k*M_SIZE + j + 2];
+				sum1 += A[i*M_SIZE + k + 3] * B[k*M_SIZE + j + 3];
+				sum2 += A[i*M_SIZE + k] * B[(k + 1)*M_SIZE + j];
+				sum2 += A[i*M_SIZE + k + 1] * B[(k + 1)*M_SIZE + j + 1];
+				sum2 += A[i*M_SIZE + k + 2] * B[(k + 1)*M_SIZE + j + 2];
+				sum2 += A[i*M_SIZE + k + 3] * B[(k + 1)*M_SIZE + j + 3];
+				sum3 += A[i*M_SIZE + k] * B[(k + 2)*M_SIZE + j];
+				sum3 += A[i*M_SIZE + k + 1] * B[(k + 2)*M_SIZE + j + 1];
+				sum3 += A[i*M_SIZE + k + 2] * B[(k + 2)*M_SIZE + j + 2];
+				sum3 += A[i*M_SIZE + k + 3] * B[(k + 2)*M_SIZE + j + 3];
+				sum4 += A[i*M_SIZE + k] * B[(k + 3)*M_SIZE + j];
+				sum4 += A[i*M_SIZE + k + 1] * B[(k + 3)*M_SIZE + j + 1];
+				sum4 += A[i*M_SIZE + k + 2] * B[(k + 3)*M_SIZE + j + 2];
+				sum4 += A[i*M_SIZE + k + 3] * B[(k + 3)*M_SIZE + j + 3];
+			}
+			C[i*M_SIZE + j] = sum1;
+			C[i*M_SIZE + j + 1] = sum2;
+			C[i*M_SIZE + j + 2] = sum3;
+			C[i*M_SIZE + j + 3] = sum4;
 		}
 	}
 }
@@ -319,10 +432,21 @@ int check_mat(float A[M_SIZE*M_SIZE], float B[M_SIZE*M_SIZE]) {
 	return 1;
 }
 
-#define ITERATIONS 10
 
-int main() {
+// if theres a second argument, it writes a file instead of printing to shell
+int main(int argc, char **argv) {
+	FILE *f;
+	if (argc > 1) {
+		char name[8];
+		sprintf(name,"%d.txt",M_SIZE);
+		f = fopen(name,"w");
+	}
+	else {
+		f = stdout;
+	}
 	double start_time, end_time;
+	double seq_time;
+	double new_time;
 	int i,j,k;
 	for (i = 0; i < M_SIZE; i ++) {
 		for (j = 0; j < M_SIZE; j ++) {
@@ -331,25 +455,57 @@ int main() {
 		}
 	}
 	matrixTranspose(B);
+
+	fprintf(f,"Using an array sized %d by %d, times were calculated for %d iterations of Matrix Multiply methods in seconds.\n\n", M_SIZE, M_SIZE, ITERATIONS);
 	
 	start_time = get_sec();
 	for(i = 0; i < ITERATIONS; i++) {
 		matrixMultiply(A,B,C_sol);
 	}
 	end_time = get_sec();
-	printf("Sequential version finished, time %f\n", (end_time-start_time));
+	seq_time = end_time - start_time;
+	fprintf(f,"Sequential version finished,\t\t\ttime %f\n", seq_time);
 
+	
+	start_time = get_sec();
+	for(i = 0; i < ITERATIONS; i++) {
+		UNROLLmatrixMultiply(A,B,C);
+	}
+	end_time = get_sec();
+	new_time = end_time - start_time;
+	if (check_mat(C_sol,C)) {
+		fprintf(f,"Sequential unrolled version finished,\t\ttime %f - x%f\n",new_time,seq_time/new_time);
+	}
+	else {
+		fprintf(f,"Sequential unrolled version failed\n");
+	}
+
+
+	start_time = get_sec();
+	for(i = 0; i < ITERATIONS; i++) {
+		quad_UNROLLmatrixMultiply(A,B,C);
+	}
+	end_time = get_sec();
+	new_time = end_time - start_time;
+	if (check_mat(C_sol,C)) {
+		fprintf(f,"Sequential quad unrolled version finished,\ttime %f - x%f\n",new_time,seq_time/new_time);
+	}
+	else {
+		fprintf(f,"Sequential quad unrolled version failed\n");
+	}
+	
 
 	start_time = get_sec();
 	for(i = 0; i < ITERATIONS; i++) {
 		SIMDmatrixMultiply(A,B,C);
 	}
 	end_time = get_sec();
+	new_time = end_time - start_time;
 	if (check_mat(C_sol,C)) {
-		printf("SIMD version finished, time %f\n", (end_time-start_time));
+		fprintf(f,"SIMD version finished,\t\t\t\ttime %f - x%f\n",new_time,seq_time/new_time);
 	}
 	else {
-		printf("SIMD version failed\n");
+		fprintf(f,"SIMD version failed\n");
 	}
 	
 
@@ -359,11 +515,12 @@ int main() {
 		SIMDmatrixMultiplyNew(A,B,C);
 	}
 	end_time = get_sec();
+	new_time = end_time - start_time;
 	if (check_mat(C_sol,C)) {
-		printf("SIMD new version finished, time %f\n", (end_time-start_time));
+		fprintf(f,"SIMD new version finished,\t\t\ttime %f - x%f\n",new_time,seq_time/new_time);
 	}
 	else {
-		printf("SIMD new version failed\n");
+		fprintf(f,"SIMD new version failed\n");
 	}
 
 
@@ -373,11 +530,12 @@ int main() {
 		SIMDmatrixMultiplyQuad(A,B,C);
 	}
 	end_time = get_sec();
+	new_time = end_time - start_time;
 	if (check_mat(C_sol,C)) {
-		printf("SIMD quad version finished, time %f\n", (end_time-start_time));
+		fprintf(f,"SIMD quad version finished,\t\t\ttime %f - x%f\n",new_time,seq_time/new_time);
 	}
 	else {
-		printf("SIMD quad version failed\n");
+		fprintf(f,"SIMD quad version failed\n");
 	}
 
 
@@ -388,13 +546,13 @@ int main() {
 		REGmatrixMultiply(A,B,C);
 	}
 	end_time = get_sec();
+	seq_time = end_time - start_time;
 	if (check_mat(C_sol,C)) {
-		printf("Regular sequential version finished, time %f\n", (end_time-start_time));
+		fprintf(f,"Regular sequential version finished,\t\ttime %f\n",seq_time);
 	}
 	else {
-		printf("Regular sequential version failed\n");
+		fprintf(f,"Regular sequential version failed\n");
 	}
-
 
 
 	start_time = get_sec();
@@ -402,12 +560,28 @@ int main() {
 		SIMDmatrixMultiplyGS(A,B,C);
 	}
 	end_time = get_sec();
+	new_time = end_time - start_time;
 	if (check_mat(C_sol,C)) {
-		printf("SIMD gather version finished, time %f\n", (end_time-start_time));
+		fprintf(f,"Regular sequential unrolled version finished,\ttime %f - x%f\n",new_time,seq_time/new_time);
 	}
 	else {
-		printf("SIMD gather version failed\n");
+		fprintf(f,"Regular sequential unrolled version failed\n");
 	}
 
+
+	start_time = get_sec();
+	for(i = 0; i < ITERATIONS; i++) {
+		SIMDmatrixMultiplyGS(A,B,C);
+	}
+	end_time = get_sec();
+	new_time = end_time - start_time;
+	if (check_mat(C_sol,C)) {
+		fprintf(f,"SIMD gather version finished,\t\t\ttime %f - x%f\n",new_time,seq_time/new_time);
+	}
+	else {
+		fprintf(f,"SIMD gather version failed\n");
+	}
+
+	fclose(f);
 	return 0;
 }
