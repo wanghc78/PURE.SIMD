@@ -138,7 +138,7 @@ int main() {
 
   int maxIterations = 10;
   int buf[width * height];
-  int bufSIMD[width * height];
+  //int bufS[width * height];
 
   //
   // Compute the image using the scalar and generic intrinsics implementations; report the minimum
@@ -152,17 +152,19 @@ int main() {
     mandelbrot_serial(x0, y0, x1, y1, width, height, maxIterations, buf);
   }
   end_time = get_sec();
+  double shnr = (end_time-start_time);
   printf("Sequential version finished, time %f\n", (end_time-start_time));
+
+  writePPM(buf, width, height, "mandelbrot-serial.ppm");
 
   start_time = get_sec();
   for(i = 0; i < ITERATIONS; i++) {
-    mandelbrot_SIMD(x0, y0, x1, y1, width, height, maxIterations, bufSIMD);
+    mandelbrot_SIMD(x0, y0, x1, y1, width, height, maxIterations, buf);
   }
   end_time = get_sec();
-  printf("SIMD version finished, time %f\n", (end_time-start_time));
-
-  writePPM(buf, width, height, "mandelbrot-serial.ppm");
-  writePPM(bufSIMD, width, height, "mandelbrot-SIMD.ppm");
+  printf("SIMD version finished, time %f - x%f\n", (end_time-start_time),shnr/(end_time-start_time));
+  
+  writePPM(buf, width, height, "mandelbrot-SIMD.ppm");
 
   return 0;
 }
